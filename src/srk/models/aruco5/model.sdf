@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="Aruco5_model">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.1 0.0 0.0</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.0 0.1 0.1</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://aruco5/materials/scripts</uri>
+            <uri>model://aruco5/materials/textures</uri>
+            <name>Aruco5</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

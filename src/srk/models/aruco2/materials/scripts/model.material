@@ -1,0 +1,10 @@
+material Aruco2 { 
+    technique { 
+        pass { 
+            texture_unit { 
+                texture aruco_2.png 
+                scale 1.0 1.0 
+            } 
+        } 
+    } 
+}

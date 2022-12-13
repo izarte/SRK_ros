@@ -16,8 +16,16 @@ git submodule update
 ### Docker
 docker container to initialize packages
 
+in catkin_ws
+
 ```sh
 catkin_make
+```
+
+We have to copy models for specific path to use gazebo simulation with arucos, in catkin_ws folder
+
+```sh
+cp -r src/srk/models /root/.gazebo/
 ```
 
 ## Start Up
