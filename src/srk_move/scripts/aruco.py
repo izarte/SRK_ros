@@ -6,6 +6,7 @@ from sensor_msgs.msg import CameraInfo
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
+import sys
 
 ARUCO_DICT = {
     "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -32,10 +33,21 @@ ARUCO_DICT = {
 }
 
 POINTS = {
-    "1": (0, 1, 0),
-    "2": (0, 1, 1),
-    "3": (1, 0, 0),
-    "4": (1, 0, 1)
+    "0": (-0.01, -0.01, 0),
+    "1": (0.01, 0.01, 0),
+    "2": (0.01, -0.01, 0.01),
+    "3": (-0.01, 0.01, 0.01),
+}
+
+LINES_PTS = {
+    "0": (-0.01, -0.01, 0),
+    "1": (0.01, 0.01, 0),
+    "2": (0.01, -0.01, 0),
+    "3": (-0.01, 0.01, 0),
+    "4": (-0.01, 0.01, 0.01),
+    "5": (0.01, 0.01, 0.01),
+    "6": (0.01, -0.01, 0.01),
+    "7": (-0.01, -0.01, 0.01)
 }
 
 
@@ -75,14 +87,16 @@ class ArucoRec:
     
             for (markerCorner, markerID) in zip(corners, ids):
                 # corners = markerCorner.reshape((4, 2))
-                points = np.float32([ POINTS['1'], POINTS['2'], POINTS['3'], 
-                        POINTS['4']])
-                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 0.02, self.mtx, self.dist)
+                points = np.float32([POINTS['0'] ,POINTS['1'], POINTS['2'], POINTS['3']])
+                points = np.float32([LINES_PTS['0'] ,LINES_PTS['1'], LINES_PTS['2'], LINES_PTS['3'],
+                                LINES_PTS['4'], LINES_PTS['5'], LINES_PTS['6'], LINES_PTS['7']])
+                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(markerCorner, 0.02, self.mtx, self.dist)
                 # ret, rvecs, tvecs = cv2.solvePnP(points, corners, self.mtx, self.dist)
 
                 # (topLeft, topRight, bottomRight, bottomLeft) = corners
                 imgpts, _ = cv2.projectPoints(points, rvecs, tvecs, self.mtx, self.dist)
-                self.draw(image, imgpts)
+                # self.draw_lines(image, imgpts)
+                self.draw_square(image, imgpts)
 
                 # topRight = (int(topRight[0]), int(topRight[1]))
                 # bottomRight = (int(bottomRight[0]), int(bottomRight[1]))
@@ -104,13 +118,25 @@ class ArucoRec:
             
         return image
 
-    def draw(self, img, imgpts):
+    def draw_lines(self, img, imgpts):
         imgpts = np.int32(imgpts).reshape(-1, 2)
 
-        for i, j in zip(range(2), range(2, 4)):
-            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (255, 255, 0), 3)
+        l1 = [0, 0, 0, 2, 2, 6, 6, 7, 4, 3, 1, 4]
+        l2 = [2, 3, 7, 1, 6, 5, 7, 4, 3, 1, 5, 5]
+
+        for i, j in zip(l1, l2):
+            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (200, 0, 0), 20)
 
         return img
+    def draw_square(self, img, imgpts):
+        imgpts = np.int32(imgpts).reshape(-1, 2)
+        l1 = [imgpts[0]]
+        l2 = []
+        l3 = [(255,0,0), (255,255,0), (0, 255, 0), (0, 0, 255), (0, 255, 255), (125, 0, 125)]
+        # for i, j, k in zip(l1, l2, l3):
+        img = cv2.fillPoly(img, pts=np.array([imgpts[4], imgpts[5], imgpts[6], imgpts[7]]).reshape((-1, 1, 2)), color=(255, 255, 0))
+        return img
+
 
     def callback(self, msg):
         # rospy.loginfo('Image received...')
@@ -122,7 +148,7 @@ class ArucoRec:
             aruco_type = "DICT_4X4_100"
             arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[aruco_type])
             arucoParams = cv2.aruco.DetectorParameters_create()
-            while True:
+            while not rospy.is_shutdown():
                 #if self.image is not None and self.vagabundeo.data==False:
                 if self.image is not None:
                     frame = self.image
@@ -136,7 +162,7 @@ class ArucoRec:
                     if cv2.waitKey(10) & 0xFF == ord('q'):
                         # cap.release()
                         cv2.destroyAllWindows()
-                        break    
+                        break
 
 
 if __name__ == '__main__':
