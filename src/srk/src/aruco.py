@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import rospy
+from std_msg.msg import Bool
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import CameraInfo
 from cv_bridge import CvBridge
@@ -54,12 +55,16 @@ class ArucoRec:
         self.dist = []
         self.rot_mat = []
         self.trans_mat = []
-        self.default_fig = self.create_fig(0.01, 0.01, 0.02, 0.01)
-        self.ID_SIZE = {}
+        self.dim = {'width': 0, 'height': 0}
+        self.border = {'width': 200, 'height': 50}
+        self.default_fig = self.create_fig(0.02, 0.02, 0.02, 0.01)
+        self.ID_SIZE = {24: self.create_fig(0.06, 0.06, 0.06, 0.06)}
+        self.collision = Bool()
 
         # Subscribers
         self.sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.callback)
-        self.pub = rospy.Publisher("/camera/rgb/aruco", Image, queue_size=100)
+        self.pub_image = rospy.Publisher("/camera/rgb/aruco", Image, queue_size=100)
+        self.pub_collision = rospy.Publisher("/colision", Bool, queue_size=100)
         data = rospy.wait_for_message("/camera/rgb/camera_info", CameraInfo, timeout=5)
         self.get_intrisc(data)
         self.start()
@@ -69,6 +74,8 @@ class ArucoRec:
         self.dist = data.D
         self.rot_mat = data.R
         self.trans_mat = data.P
+        self.dim['width'] = data.width
+        self.dim['height'] = data.height
 
     def aruco_display(self, corners, ids, rejected, image):
         if len(corners) > 0:
@@ -76,7 +83,7 @@ class ArucoRec:
             ids = ids.flatten()
     
             for (markerCorner, markerID) in zip(corners, ids):
-                if markerID in self.ID_SIZE:
+                if int(markerID) in self.ID_SIZE:
                     points_dict = self.ID_SIZE[markerID]
                 else:
                     points_dict = self.default_fig
@@ -85,15 +92,33 @@ class ArucoRec:
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(markerCorner, 0.02, self.mtx, self.dist)
 
                 imgpts, _ = cv2.projectPoints(points, rvecs, tvecs, self.mtx, self.dist)
+                if self.check_collision(imgpts):
+                    self.collision.data = True
+                    self.pub_collision.publish(self.collision)
+                elif self.collision.data == True:
+                    self.collision.data = False
+                    self.pub_collision.publish(self.collision)
                 self.draw_lines(image, imgpts)
-
                 print("[Inference] ArUco marker ID: {}".format(markerID))
-            
+
         return image
+
+    def check_collision(self, points):
+        l = [0, 3, 4, 7]
+        viewed_points = 4
+        for i in l:
+            if points[i][0][1] < -self.border['width'] or points[i][0][1] > self.dim['height'] + self.border['width']:
+              viewed_points -= 1
+            if points[i][0][0] < -self.border['width'] or points[i][0][1] > self.dim['width'] + self.border['width']:
+                viewed_points -= 1
+            
+        if viewed_points <= 2:
+            return True
+        
+        return False
 
     def draw_lines(self, img, imgpts):
         imgpts = np.int32(imgpts).reshape(-1, 2)
-
         edges = [
             (0, 1),
             (0, 3),
@@ -123,7 +148,7 @@ class ArucoRec:
             '0': [-w, -h, l + o],
             '1': [-w,  h, l + o],
             '2': [ w,  h, l + o],
-            '3': [ w,  h, l + o],
+            '3': [ w,  -h, l + o],
             '4': [ w,  -h,    o],
             '5': [ w,   h,    o],
             '6': [-w,   h,    o],
@@ -145,7 +170,7 @@ class ArucoRec:
                     corners, ids, rejected = cv2.aruco.detectMarkers(frame, arucoDict, parameters=arucoParams)
                     detected_markers = self.aruco_display(corners, ids, rejected, frame)
                     image = self.br.cv2_to_imgmsg(detected_markers, encoding="passthrough")
-                    self.pub.publish(image)
+                    self.pub_image.publish(image)
 
                     # Program Termination
                     # cv2.imshow("Multiple Color Detection in Real-TIme", frame)
