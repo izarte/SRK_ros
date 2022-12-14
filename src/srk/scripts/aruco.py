@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 
 import rospy
 from sensor_msgs.msg import Image
@@ -6,7 +6,6 @@ from sensor_msgs.msg import CameraInfo
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
-import sys
 
 ARUCO_DICT = {
     "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -32,13 +31,6 @@ ARUCO_DICT = {
     "DICT_APRILTAG_36h11": cv2.aruco.DICT_APRILTAG_36h11
 }
 
-POINTS = {
-    "0": (-0.01, -0.01, 0),
-    "1": (0.01, 0.01, 0),
-    "2": (0.01, -0.01, 0.01),
-    "3": (-0.01, 0.01, 0.01),
-}
-
 LINES_PTS = {
     "0": (-0.01, -0.01, 0),
     "1": (0.01, 0.01, 0),
@@ -60,18 +52,16 @@ class ArucoRec:
         # self.loop_rate = rospy.Rate(50)
         self.mtx = []
         self.dist = []
-        self.rot_mat= []
-        self.trans_mat= []
+        self.rot_mat = []
+        self.trans_mat = []
+        self.default_fig = self.create_fig(0.01, 0.01, 0.02, 0.01)
+        self.ID_SIZE = {}
 
         # Subscribers
         self.sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.callback)
-        self.pub = rospy.Publisher("/camera/rgb/aruco", Image, queue_size=10)
+        self.pub = rospy.Publisher("/camera/rgb/aruco", Image, queue_size=100)
         data = rospy.wait_for_message("/camera/rgb/camera_info", CameraInfo, timeout=5)
         self.get_intrisc(data)
-        print(self.mtx)
-        print(self.dist)
-        print(self.rot_mat)
-        print(self.trans_mat)
         self.start()
 
     def get_intrisc(self, data):
@@ -86,34 +76,17 @@ class ArucoRec:
             ids = ids.flatten()
     
             for (markerCorner, markerID) in zip(corners, ids):
-                # corners = markerCorner.reshape((4, 2))
-                points = np.float32([POINTS['0'] ,POINTS['1'], POINTS['2'], POINTS['3']])
-                points = np.float32([LINES_PTS['0'] ,LINES_PTS['1'], LINES_PTS['2'], LINES_PTS['3'],
-                                LINES_PTS['4'], LINES_PTS['5'], LINES_PTS['6'], LINES_PTS['7']])
+                if markerID in self.ID_SIZE:
+                    points_dict = self.ID_SIZE[markerID]
+                else:
+                    points_dict = self.default_fig
+                points = np.float32([points_dict['0'] ,points_dict['1'], points_dict['2'], points_dict['3'],
+                                points_dict['4'], points_dict['5'], points_dict['6'], points_dict['7']])
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(markerCorner, 0.02, self.mtx, self.dist)
-                # ret, rvecs, tvecs = cv2.solvePnP(points, corners, self.mtx, self.dist)
 
-                # (topLeft, topRight, bottomRight, bottomLeft) = corners
                 imgpts, _ = cv2.projectPoints(points, rvecs, tvecs, self.mtx, self.dist)
-                # self.draw_lines(image, imgpts)
-                self.draw_square(image, imgpts)
+                self.draw_lines(image, imgpts)
 
-                # topRight = (int(topRight[0]), int(topRight[1]))
-                # bottomRight = (int(bottomRight[0]), int(bottomRight[1]))
-                # bottomLeft = (int(bottomLeft[0]), int(bottomLeft[1]))
-                # topLeft = (int(topLeft[0]), int(topLeft[1]))
-                # print(topLeft)
-                # cv2.line(image, topLeft, topRight, (0, 255, 0), 6)
-                # cv2.line(image, topRight, bottomRight, (0, 255, 0), 6)
-                # cv2.line(image, bottomRight, bottomLeft, (0, 255, 0), 6)
-                # cv2.line(image, bottomLeft, topLeft, (0, 255, 0), 6)
-            
-                # cX = int((topLeft[0] + bottomRight[0]) / 2.0)
-                # cY = int((topLeft[1] + bottomRight[1]) / 2.0)
-                # cv2.circle(image, (cX, cY), 4, (0, 0, 255), -1)
-            
-                # cv2.putText(image, str(markerID),(topLeft[0], topLeft[1] - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                #     0.5, (0, 255, 0), 2)
                 print("[Inference] ArUco marker ID: {}".format(markerID))
             
         return image
@@ -121,35 +94,52 @@ class ArucoRec:
     def draw_lines(self, img, imgpts):
         imgpts = np.int32(imgpts).reshape(-1, 2)
 
-        l1 = [0, 0, 0, 2, 2, 6, 6, 7, 4, 3, 1, 4]
-        l2 = [2, 3, 7, 1, 6, 5, 7, 4, 3, 1, 5, 5]
+        edges = [
+            (0, 1),
+            (0, 3),
+            (0, 7),
+            (1, 2),
+            (1, 6),
+            (2, 3),
+            (2, 5),
+            (3, 4),
+            (4, 5),
+            (4, 7),
+            (6, 7),
+            (6, 5),
+        ]
 
-        for i, j in zip(l1, l2):
-            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]), (200, 0, 0), 20)
+        for edge in edges:
+            img = cv2.line(img, tuple(imgpts[edge[0]]), tuple(imgpts[edge[1]]), (200, 0, 0), 20)
 
         return img
-    def draw_square(self, img, imgpts):
-        imgpts = np.int32(imgpts).reshape(-1, 2)
-        l1 = [imgpts[0]]
-        l2 = []
-        l3 = [(255,0,0), (255,255,0), (0, 255, 0), (0, 0, 255), (0, 255, 255), (125, 0, 125)]
-        # for i, j, k in zip(l1, l2, l3):
-        img = cv2.fillPoly(img, pts=np.array([imgpts[4], imgpts[5], imgpts[6], imgpts[7]]).reshape((-1, 1, 2)), color=(255, 255, 0))
-        return img
 
+    @staticmethod
+    def create_fig(w, h, l, o):
+        w = w / 2
+        h = h / 2
+        
+        points = {
+            '0': [-w, -h, l + o],
+            '1': [-w,  h, l + o],
+            '2': [ w,  h, l + o],
+            '3': [ w,  h, l + o],
+            '4': [ w,  -h,    o],
+            '5': [ w,   h,    o],
+            '6': [-w,   h,    o],
+            '7': [-w,  -h,    o],
+        }
+
+        return points
 
     def callback(self, msg):
-        # rospy.loginfo('Image received...')
         self.image = self.br.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        # self.pub.publish(msg)
-
 
     def start(self):
             aruco_type = "DICT_4X4_100"
             arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[aruco_type])
             arucoParams = cv2.aruco.DetectorParameters_create()
             while not rospy.is_shutdown():
-                #if self.image is not None and self.vagabundeo.data==False:
                 if self.image is not None:
                     frame = self.image
                     corners, ids, rejected = cv2.aruco.detectMarkers(frame, arucoDict, parameters=arucoParams)
@@ -158,7 +148,7 @@ class ArucoRec:
                     self.pub.publish(image)
 
                     # Program Termination
-                    cv2.imshow("Multiple Color Detection in Real-TIme", frame)
+                    # cv2.imshow("Multiple Color Detection in Real-TIme", frame)
                     if cv2.waitKey(10) & 0xFF == ord('q'):
                         # cap.release()
                         cv2.destroyAllWindows()
@@ -166,6 +156,5 @@ class ArucoRec:
 
 
 if __name__ == '__main__':
-    rospy.init_node("arco_recognition", anonymous=True)
+    rospy.init_node("aruco_recognition", anonymous=True)
     aruco = ArucoRec()
-    # move.start_up()
