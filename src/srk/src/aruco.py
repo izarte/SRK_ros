@@ -1,12 +1,14 @@
 #!/usr/bin/python3
 
 import rospy
-from std_msg.msg import Bool
-from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
+from sensor_msgs.msg import CompressedImage, Image
 from sensor_msgs.msg import CameraInfo
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
+import time
+
 
 ARUCO_DICT = {
     "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -50,7 +52,7 @@ class ArucoRec:
         self.image = None
         self.br = CvBridge()
         # Node cycle rate (in Hz).
-        # self.loop_rate = rospy.Rate(50)
+        # self.loop_rate = rospy.Rate(1)
         self.mtx = []
         self.dist = []
         self.rot_mat = []
@@ -58,13 +60,19 @@ class ArucoRec:
         self.dim = {'width': 0, 'height': 0}
         self.border = {'width': 200, 'height': 50}
         self.default_fig = self.create_fig(0.02, 0.02, 0.02, 0.01)
-        self.ID_SIZE = {24: self.create_fig(0.06, 0.06, 0.06, 0.06)}
+        self.ID_SIZE = {
+            24: self.create_fig(0.06, 0.06, 0.06, 0.06),
+            21: self.create_fig(0.1, 0.1, 0.1, 0.1),
+            22: self.create_fig(0.04, 0.1, 0.04, 0.06)
+        }
         self.collision = Bool()
+        self.known_id = {}
 
         # Subscribers
-        self.sub = rospy.Subscriber("/camera/rgb/image_raw", Image, self.callback)
+        self.sub = rospy.Subscriber("/camera/rgb/image_raw/compressed", CompressedImage, self.callback)
+        # self.sub = rospy.Subscriber("/camera/rgb/image_raw", CompressedImage, self.callback)
         self.pub_image = rospy.Publisher("/camera/rgb/aruco", Image, queue_size=100)
-        self.pub_collision = rospy.Publisher("/colision", Bool, queue_size=100)
+        self.pub_collision = rospy.Publisher("/collision", Bool, queue_size=100)
         data = rospy.wait_for_message("/camera/rgb/camera_info", CameraInfo, timeout=5)
         self.get_intrisc(data)
         self.start()
@@ -83,24 +91,32 @@ class ArucoRec:
             ids = ids.flatten()
     
             for (markerCorner, markerID) in zip(corners, ids):
-                if int(markerID) in self.ID_SIZE:
-                    points_dict = self.ID_SIZE[markerID]
-                else:
-                    points_dict = self.default_fig
-                points = np.float32([points_dict['0'] ,points_dict['1'], points_dict['2'], points_dict['3'],
-                                points_dict['4'], points_dict['5'], points_dict['6'], points_dict['7']])
+                if not markerID in self.known_id:
+                    if int(markerID) in self.ID_SIZE:
+                        self.known_id[markerID] = self.ID_SIZE[markerID]
+                    else:
+                        self.known_id[markerID] = self.default_fig
+                points = np.float32([self.known_id[markerID]['0'] ,self.known_id[markerID]['1'], self.known_id[markerID]['2'], self.known_id[markerID]['3'],
+                                self.known_id[markerID]['4'], self.known_id[markerID]['5'], self.known_id[markerID]['6'], self.known_id[markerID]['7']])
+                
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(markerCorner, 0.02, self.mtx, self.dist)
 
                 imgpts, _ = cv2.projectPoints(points, rvecs, tvecs, self.mtx, self.dist)
                 if self.check_collision(imgpts):
-                    self.collision.data = True
-                    self.pub_collision.publish(self.collision)
+                    print('COLLISION')
+                    if not self.collision.data:
+                        self.collision.data = True
+                        self.pub_collision.publish(self.collision)
                 elif self.collision.data == True:
                     self.collision.data = False
                     self.pub_collision.publish(self.collision)
                 self.draw_lines(image, imgpts)
-                print("[Inference] ArUco marker ID: {}".format(markerID))
+                # del points_dict
 
+                print("[Inference] ArUco marker ID: {}".format(markerID))
+        elif self.collision.data:
+            self.collision.data = False
+            self.pub_collision.publish(self.collision)
         return image
 
     def check_collision(self, points):
@@ -111,7 +127,7 @@ class ArucoRec:
               viewed_points -= 1
             if points[i][0][0] < -self.border['width'] or points[i][0][1] > self.dim['width'] + self.border['width']:
                 viewed_points -= 1
-            
+        print(viewed_points)
         if viewed_points <= 2:
             return True
         
@@ -158,26 +174,31 @@ class ArucoRec:
         return points
 
     def callback(self, msg):
-        self.image = self.br.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        array = np.fromstring(msg.data, np.uint8)
+        self.image = cv2.imdecode(array, cv2.IMREAD_COLOR)
+        # self.image = self.br.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
     def start(self):
             aruco_type = "DICT_4X4_100"
             arucoDict = cv2.aruco.Dictionary_get(ARUCO_DICT[aruco_type])
             arucoParams = cv2.aruco.DetectorParameters_create()
+            num_frame = time.time()
             while not rospy.is_shutdown():
-                if self.image is not None:
+                if self.image is not None and time.time() - num_frame > 0.1:
+                    num_frame = time.time()
+                    # if time.time() - num_frame < 0.5:
+                    #     continue
                     frame = self.image
                     corners, ids, rejected = cv2.aruco.detectMarkers(frame, arucoDict, parameters=arucoParams)
                     detected_markers = self.aruco_display(corners, ids, rejected, frame)
-                    image = self.br.cv2_to_imgmsg(detected_markers, encoding="passthrough")
+                    image_ros = detected_markers
+                    # image_ros = cv2.cvtColor(detected_markers, cv2.COLOR_BGR2GRAY)
+                    image_ros = cv2.cvtColor(image_ros, cv2.COLOR_BGR2RGB)
+                    height, width, _ = image_ros.shape
+                    image_ros = cv2.resize(image_ros, (int(width/2) , int(height/2)))
+                    image_ros = cv2.resize(image_ros, (256, 144))
+                    image = self.br.cv2_to_imgmsg(image_ros, encoding="passthrough")
                     self.pub_image.publish(image)
-
-                    # Program Termination
-                    # cv2.imshow("Multiple Color Detection in Real-TIme", frame)
-                    if cv2.waitKey(10) & 0xFF == ord('q'):
-                        # cap.release()
-                        cv2.destroyAllWindows()
-                        break
 
 
 if __name__ == '__main__':
