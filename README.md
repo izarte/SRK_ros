@@ -1,42 +1,35 @@
 # Srk ros packages
 
-Ros packages to succefully connect unity with ros and logic for SRK (link)
+Ros packages to succefully connect unity with ros and aruco detection [SRK]
 
 ## Prerequisites
 - Docker
 
 ## Installation
-Clone repository and update submodules
+Update submodules
 ```sh
-git clone https://github.com/izarte/SRK_ros
 git submodule init
 git submodule update
 ```
 
 ### Docker
-docker container to initialize packages
-
-in catkin_ws
-
+To launch docker container, use this command into repository:
 ```sh
-catkin_make
+docker run -v <FOLDER_PATH>/catkin_ws:/catkin_ws --volume=/tmp/.X11-unix:/tmp/.X11-unix --volume=src/srk/models:/root/.gazebo --env="DISPLAY" --net=host -it --rm --name ros_noetic inigo183/ros_noetic:latest /bin/bash
 ```
 
-We have to copy models for specific path to use gazebo simulation with arucos, in catkin_ws folder
+First of all we have to compile the packages, to di so in docker container execute:
 
 ```sh
-cp -r src/srk/models /root/.gazebo/
+cd catkin_make
+catkin_make
 ```
 
 ## Start Up
 
-Terminal 1
+Terminal 1 (same as previous installation)
+in catkin_ws
 ```sh
-docker run -v <FOLDER_PATH>/catkin_ws:/catkin_ws --volume=/tmp/.X11-unix:/tmp/.X11-unix --device=/dev/dri:/dev/dri --env="DISPLAY" --net=host -it --rm --name ros_noetic inigo183/ros_noetic:odom /bin/bash
-```
-
-```sh
-cd catkin_ws
 source devel/setup.bash
 roscore &
 rosparam set ROS_IP <YOUR_PC_IP>
@@ -50,9 +43,9 @@ docker exec -it ros_noetic /ros_entrypoint.sh /bin/bash
 ```sh
 cd catkin_ws
 source devel/setup.bash
-rosrun srk_move move.py
+rosrun srk_move aruco.py
 ```
-## Unity Steps
-Open project and set your ip to Ros connections. Robotics->Ros Settings and in Ros_Connection object.
 
-Choose message path, Robotics->Generate Ros Messages->Ros Message path and select srk_move folder. Click in build msg and srv.
+
+[SRK]: https://github.com/izarte/SRK
+
